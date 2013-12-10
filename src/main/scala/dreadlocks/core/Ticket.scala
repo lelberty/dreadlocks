@@ -2,9 +2,11 @@ package dreadlocks.core
 
 import scala.collection.mutable.SynchronizedStack
 import scala.collection.immutable.List
-import java.util.concurrent.ConcurrentHashMap
+import scala.collection.concurrent.TrieMap
+//import java.util.concurrent.ConcurrentHashMap
 import scala.collection.immutable.BitSet
-import dreadlocks.core.DreadLockException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.locks.ReentrantLock;
 
 /* Manages access to the DreadLock.
  * Every thread attempting to acquire a lock must acquire a ticket.
@@ -12,17 +14,32 @@ import dreadlocks.core.DreadLockException
  */
 object Ticket {
   
+  object TicketStatus extends Enumeration {
+    type status = Value
+    val READY, RECYCLING = Value
+  }
+  
   val TOTAL_TICKETS = 64
   val ALL_TICKETS = List.range(0, TOTAL_TICKETS)
+
+  val gLock : ReentrantLock = new ReentrantLock()
+  
+  // for recycling tickets
   val ticketStack : SynchronizedStack[Ticket] = new SynchronizedStack[Ticket]()
   
-  val ticketMap : ConcurrentHashMap[Int, Ticket] = new ConcurrentHashMap[Int, Ticket]()
-    
+  // no recycling; creating new Tickets EVERY time one is pulled off of the stack 
+  val ticketNumStack : SynchronizedStack[Int] = new SynchronizedStack[Int]()
+  
+  val ticketMap : TrieMap[Int, Ticket] = new TrieMap[Int, Ticket]()
+  //  val resourceMap : TrieMap[Any, ]
+  
+  //  val resourceMap : 
+  
   def reset() : Unit = {
-    ticketStack.clear
-    ticketMap.clear
+    ticketNumStack.clear()
+    ticketMap.clear()
     // alloc and push all tickets into the stack
-    ALL_TICKETS.foreach( (n : Int) => ticketStack.push(new Ticket(n)))
+    ALL_TICKETS.foreach( (n : Int) => ticketNumStack.push(n))
   }
   
   reset()
@@ -32,25 +49,21 @@ object Ticket {
   def takeTicket() : Ticket = {
     
     val tid = Thread.currentThread().getId().toInt
-        
+    
     val myTicket:Ticket = ticketMap.get(tid) match {
-      case null =>
+      case None =>
         try {
-          val t = ticketStack.pop()
-          assert(t.bits.isEmpty)
-          assert(t.dependents.isEmpty)
+          val t = new Ticket(ticketNumStack.pop())
           ticketMap.put(tid, t)
           t.incrementHoldCount
           t
         } catch {
-        case e: Exception => throw new DreadLockException(
+          case e: Exception => throw new DreadLockException(
             "Failed to take Ticket: " + e.getMessage()) 
         }
-      case ok:Ticket =>
-        assert(ok.bits.isEmpty)
-        assert(ok.dependents.isEmpty)
-        ok.incrementHoldCount
-        ok
+      case Some(t : Ticket) =>
+         t.incrementHoldCount
+      t
     }
     if (myTicket == null) throw new NullPointerException("takeTicket returned null ticket")
     myTicket
@@ -62,33 +75,35 @@ object Ticket {
     val tid = Thread.currentThread().getId().toInt
     
     val myTicket:Ticket = ticketMap.get(tid) match {
-      case null => throw new DreadLockException("thread + %d has no Ticket".format(tid))
-      case t:Ticket => t
+      case None => throw new DreadLockException("thread + %d has no Ticket".format(tid))
+      case Some(t:Ticket) => t
     }
     
-    myTicket.decrementHoldCount
+    myTicket.decrementHoldCount()
     
-    if (myTicket.isFree) {
+    if (myTicket.isFree()) {
       ticketMap.remove(tid)
-      myTicket.reset
+      myTicket.clear()
       ticketStack.push(myTicket)
       return false
     } else return true
   }
-    
+  
 }
 
 class Ticket(ticketNum : Int) {
-  
+
   // needs to be volatile? probably not because only 
   // the one thread using Ticket is ever concerned with its value
   private var holdCount : Int = 0 
-  	// 
+  // 
   // bits does NOT contain self, so that deadlock checks can be cache-local and insanely fast
   @volatile private var bits : BitSet = BitSet.empty
   
   /* dependents should NEVER contain this Ticket */
   @volatile private var dependents : List[Ticket] = List[Ticket]()
+  
+  @volatile private var deadlocked : Boolean = false
   
   // NOTE: These may need to be synchronized, or at the very least the holdCount var will need to be 'volatile'
   private def incrementHoldCount() : Unit = holdCount = holdCount + 1
@@ -102,55 +117,37 @@ class Ticket(ticketNum : Int) {
   
   def getHoldCount() : Int = holdCount
   
+  def getDependents() = dependents
+  def getBits() = bits
+  
   def isFree() : Boolean = holdCount == 0
   
-  // NOTE: I believe concurrent calls to clear and union can cause false positives
-  def clear() : Unit = { 
-    bits = BitSet.empty
+  def clear() : Unit = {
+    clearBits()
     dependents = List.empty[Ticket]
   }
   
-  def reset() : Unit = {
-    this.clear()
-  }
-  
-  def union(other: Ticket) : Boolean = {
-    
-    // println("union, this.ticketNum = %d".format(this.ticketNum))
-    
-    if (other == null) throw new Exception("blarg")
+  def clearBits() : Unit = bits = BitSet.empty
 
-    bits = bits + other.getTicketNum // I'm dependent on other 
-    bits = bits | other.bits // and everything it's dependent on
-    
-//    println("Before cycle check: %d's bits: %s".format(this.ticketNum, this.bits))
+  def union(other: Ticket) : Unit = _union(other, List[Ticket]())
 
-    // cycle detected, abort. NOTE: even if this is missed because of
-    // concurrent calls to union, it will eventually be caught by someone in the cycle
-    if (this.cycleCheck()) return false
-    
-    other.dependents = this::other.dependents
-    
-//    println("%d's dependents: %s, isEmpty: %b"
-//          .format(ticketNum, dependents, dependents.isEmpty))
-
-    // back-propagate - everyone dependent on me should be
-    // again unioned with me, and return false if a cycle was detected
-    return dependents.forall((t : Ticket) => {
-//      println("back-propagating %d's change to %d".format(ticketNum, t.getTicketNum))
-      t.union(this) })
-  } 
-  
-  // manually check for a cycle
-  // because bits ONLY contains my ticketNum if there's a cycle, this
-  // can be checked just by looking at my dependencies. This provides
-  // speed and cache-locality
-  def cycleCheck() : Boolean = {
-    val res = bits(ticketNum)
-//    println("cc | bits = %s, ticketNum: %d, res: %b"
-//        .format(bits, ticketNum, res))
-    res
+  private def _union(other: Ticket, visited : List[Ticket]) : Unit = {
+     println("%d U %d".format(ticketNum, other.getTicketNum()))
+    // deadlock, so flag everyone in the cycle
+    if (visited.contains(this)) {
+      visited.foreach( (t) => t.deadlocked = true )
+    } else {
+      val oDependents = other.dependents
+      other.dependents = this::oDependents
+      val newVisited = this :: visited
+      dependents.foreach( (t) => t._union(this, newVisited) )
+    }
   }
 
-      
+  def cycleCheck() : Boolean = deadlocked
+
+  override def toString() : String = {
+    "Ticket[ticketNum = %d, bits = %s, dependents = %s]"
+		.format(ticketNum, bits, dependents)
+  }
 }

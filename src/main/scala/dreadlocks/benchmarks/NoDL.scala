@@ -1,22 +1,33 @@
 package dreadlocks.benchmarks
 
-import scala.util.Random
-import scala.collection.mutable.ListBuffer
 import java.util.concurrent.CyclicBarrier
 import dreadlocks.core.DreadLock
 import dreadlocks.core.AbstractLock
-//import dreadlocks.benchmarks.DummyData
 
-object RandomAccess {
+class DummyData(v:Int) {
+  def getV() = v
+  override def toString(): String = v.toString()
+}
+
+// true t2 n1000000 w10000 r100  | 175  10.0/13.0%   seems to be slower
+// false t2 n1000000 w10000 r100 | 155
+
+// true t3 n1000000 w10000 r100  | 238  15.33/24.0%
+// false t3 n1000000 w10000 r100 | 192
+
+// true t4 n1000000 w10000 r100  | 257  10.25/19.0%
+// false t4 n1000000 w10000 r100 | 216
+
+// true t7 n1000000 w10000 r100  | 481  11.1/19.3%   slightly better
+// false t7 n1000000 w6000 r100  | 403
+
+object NoDL {
   
   // Parameters
   var threads:Int = 2
   var warmups:Int = 2000
   var runs:Int = 100
   var numElem:Int = 100
-  var numAccesses:Int = numElem
-  var batchSize:Int = 2
-  var nextBatchSize:Int = batchSize
   var verbose:Boolean = false
         
   private var barrier:CyclicBarrier = null
@@ -36,19 +47,14 @@ object RandomAccess {
      var total:Long = 0;
      var avg:Long = 0;
      
-     DreadLock.setBackoff(0)
-     DreadLock.setEnableDetection(true)
-     
      contentionList = List.tabulate(numElem)(
          (n) => new DummyData(n))
          
-         
      for (i <- 1 to warmups) {
-       AbstractLock.reset()
-       time = runRandomAccess()
+       time = runNoDL()
            total += time
-       if (verbose) println("Warmup %d completed in: %d, deadlocks: %f"
-           .format(i, time, AbstractLock.getDlCount()/(1.0*numAccesses*threads)))
+       if (verbose) println("Warmup %d completed in: %d"
+           .format(i, time))
      }
      
      avg = total/warmups
@@ -58,11 +64,10 @@ object RandomAccess {
      total = 0
      
      for (i <- 1 to runs) {
-       AbstractLock.reset()
-       time = runRandomAccess()
+       time = runNoDL()
        total += time
-       if (verbose) println("Run %d completed in: %d, deadlocks/runs: %f"
-         .format(i, time, AbstractLock.getDlCount/(1.0*numAccesses*threads)))
+       if (verbose) println("Run %d completed in: %d"
+         .format(i, time))
      }
      
      avg = total/runs
@@ -72,7 +77,7 @@ object RandomAccess {
      total = 0
   }
 
-  private def runRandomAccess(): Long = {
+  private def runNoDL(): Long = {
     
     barrier = new CyclicBarrier(threads)
     runBarrier = new CyclicBarrier(threads+1)
@@ -81,7 +86,7 @@ object RandomAccess {
 
     // spawn processes
     for (i <- 1 to threads) {
-      val l = new RandomAccess();
+      val l = new NoDL();
       l.start()
     }
     
@@ -107,12 +112,6 @@ object RandomAccess {
         } else if (arg.equals("-n")) {
           numElem = args(i).toInt
           if (numElem <= 0) opterr = true
-        } else if (arg.equals("-a")) {
-          numAccesses = args(i).toInt
-          if (numAccesses <= 0) opterr = true
-        } else if (arg.equals("-b")) {
-          batchSize = args(i).toInt
-          if (batchSize <= 0) opterr = true
         } else if (arg.equals("--verbose")) {
           verbose = true
         } else if (arg.equals("-w")) {
@@ -133,74 +132,41 @@ object RandomAccess {
       }
       
       if (opterr) {
-        RandomAccess.displayUsage()
+        NoDL.displayUsage()
         exit(1)
       }
     }
   }
   
   private def displayUsage(): Unit = {
-    println("RandomAccess benchmark usage: RandomAccess [options]")
+    println("NoDL benchmark usage: NoDL [options]")
     println("Options:")
     println("    -t          number of threads (must be > 0)")
-    println("    -n          number of elements in the list(must be > 0)") 
-    println("    -a          number of accesses (must be > 0)")
-    println("    -b          batch size (must be > 0, > 1 to cause deadlock")
     println("    --verbose   yap yap yap")
     println("    -w          number of warmups (must be > 0)")
     println("    -r          number of runs (must be > 0)")
   }
 }
 
-class RandomAccess() extends Thread {
+class NoDL() extends Thread {
   
   override def run():Unit = {
 
     val id = Thread.currentThread().getId()
     
     // setup
-    val l = RandomAccess.getContentionList()
+    val l = NoDL.getContentionList()
     
-    RandomAccess.getRunBarrier().await()
+    NoDL.getRunBarrier().await()
     
-    val numAccesses = RandomAccess.numAccesses
-    val batchSize = RandomAccess.batchSize
+    // "process" every element in the list in ascending order
+    l.foreach((d) => {
+      AbstractLock.lock(d)
+      d.getV() + 1
+      AbstractLock.unlock(d)
+    })
     
-    val gen = new Random()
-    
-    val numBatches = numAccesses/batchSize + 1
-    var batch = 1
-    var nextBatchSize = batchSize
-    
-    var acquired = ListBuffer[DummyData]()
-
-    for (a <- 1 to numAccesses by batchSize) {
-      
-      if (batch == numBatches) nextBatchSize = numAccesses - a + 1
-          
-      // batch acquire
-      for (b <- 1 to nextBatchSize) {
-        val e = l(gen.nextInt(RandomAccess.numElem))
-        if (AbstractLock.lock(e)) acquired += e // only add to acquired if I don't already own it
-        e.getV() + 1
-      }
-      
-      // batch release
-      acquired.foreach( (e) => AbstractLock.unlock(e) )
-      acquired.clear()      
-    }
-    
-    // random accesses 
-//    for (i <- 1 to RandomAccess.numAccesses) {
-//      // pick random 
-//      val index = gen.nextInt(RandomAccess.numElem)
-//      val d = l(index)
-//      AbstractLock.lock(d)
-//      d.getV() + 1
-//      AbstractLock.unlock(d)
-//    }
-    
-    RandomAccess.getRunBarrier().await()
+    NoDL.getRunBarrier().await()
   }
     
 }

@@ -5,3 +5,6 @@ bin/*
 .settings
 .classpath
 lib/*
+
+# sbt
+target/
