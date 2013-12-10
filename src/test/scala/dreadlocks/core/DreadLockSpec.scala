@@ -21,8 +21,6 @@ class DreadLockSpec extends FunSpec with BeforeAndAfter {
   val success = DreadLockStatus.Success
   val deadlock = DreadLockStatus.Deadlock
   
-        
-        
   private def makeWaitForFun(numThreads: Int, c: Conductor) : (Int => Unit) = {
     
     var arrived : Int = 0
@@ -111,48 +109,77 @@ class DreadLockSpec extends FunSpec with BeforeAndAfter {
 //    }
     
 
-//  	it ("should correctly detect a 2-thread deadlock") {
+ 	it ("should correctly detect a 2-thread deadlock") {
       
-//       for (i <- 1 to NUM_RUNS) {
+      for (i <- 1 to NUM_RUNS) {
         
-//         println("\n -- RUN %d -- \n".format(i))
+        println("\n -- RUN %d -- \n".format(i))
         
-//         Ticket.reset()
+        Ticket.reset()
     	  
-//         val c = new Conductor()
-//       	import c._
-//       	val dl = new DreadLock()
+        val c = new Conductor()
+      	import c._
+      	val dl = new DreadLock()
         
-//         val waitFun = makeWaitForFun(2, c)
+      	thread("A") {
+          dl.lock(R1) should be (success)
+          println("A acquired R1")
+          waitForBeat(1)
+          println("A passed beat 1")
+          dl.lock(R2) should be (deadlock)
+        }
         
-//       	thread("A") {
-//           dl.lock(R1) should be (success)
-//           println("A acquired R1")
-//           waitFun(1)
-//           println("A passed beat 1")
-//           dl.lock(R2) should be (deadlock)
-//         }
+        thread("B") {
+          dl.lock(R2) should be (success)
+          println("B acquired R2")
+          waitForBeat(1)
+          println("B passed beat 1")
+          dl.lock(R1) should be (deadlock)
+        }
         
-//         thread("B") {
-//           dl.lock(R2) should be (success)
-//           println("B acquired R2")
-//           waitFun(1)
-//           println("B passed beat 1")
-//           dl.lock(R1) should be (deadlock)
-//         }
-        
-//         whenFinished {
-// //          beat should be (1)
-//         }
-
-//       }
+        whenFinished {}
+      }
       
-//     }
+    }
     
-//   }
+  }
    
    it ("should correctly detect a 3-thread deadlock") {
+     
+     for (i <- 1 to NUM_RUNS) {
+       
+       println("\n -- RUN %d -- ".format(i))
 
+       Ticket.reset()
+
+       val c = new Conductor()
+       import c._
+       val dl = new DreadLock()
+
+       thread("A") {
+         dl.lock(R1) should be (success)
+         println("A acquired R1")
+         waitForBeat(1)
+         dl.lock(R2) should be (deadlock)
+       }
+
+       thread("B") {
+         dl.lock(R2) should be (success)
+         println("B acquired R2")
+         waitForBeat(1)
+         dl.lock(R3) should be (deadlock)
+       }
+
+       thread("C") {
+         dl.lock(R3) should be (success)
+         println("C acquired R3")
+         waitForBeat(1)
+         dl.lock(R1) should be (deadlock)
+       }
+
+       whenFinished {}
+
+     }
 
    }
 //    

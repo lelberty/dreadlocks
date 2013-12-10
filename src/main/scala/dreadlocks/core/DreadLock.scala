@@ -46,8 +46,6 @@ class DreadLock() {
       
       var lastOwner : Ticket = null
       
-//      println("%s attempting to acquire %s".format(myTicket, key))
-      
       while(true) {
         while (lockData.locked.get()) {
           // cycle check (cheap)
