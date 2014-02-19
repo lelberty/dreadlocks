@@ -12,7 +12,7 @@ object LockStatus extends Enumeration {
 class AbstractLockException(msg : String) extends Exception(msg)
 
 /**
- * @author mph
+ * @author mph, lelberty
  * Transactional Boosting abstract lock
  */
 object AbstractLock {

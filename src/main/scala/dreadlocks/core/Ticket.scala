@@ -10,7 +10,6 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /* Manages access to the DreadLock.
  * Every thread attempting to acquire a lock must acquire a ticket.
- * This ticket consists of a unique id   
  */
 object Ticket {
   
@@ -28,12 +27,10 @@ object Ticket {
   val ticketStack : SynchronizedStack[Ticket] = new SynchronizedStack[Ticket]()
   
   // no recycling; creating new Tickets EVERY time one is pulled off of the stack 
+  // TODO: add recycling
   val ticketNumStack : SynchronizedStack[Int] = new SynchronizedStack[Int]()
   
   val ticketMap : TrieMap[Int, Ticket] = new TrieMap[Int, Ticket]()
-  //  val resourceMap : TrieMap[Any, ]
-  
-  //  val resourceMap : 
   
   def reset() : Unit = {
     ticketNumStack.clear()
@@ -93,10 +90,8 @@ object Ticket {
 
 class Ticket(ticketNum : Int) {
 
-  // needs to be volatile? probably not because only 
-  // the one thread using Ticket is ever concerned with its value
   private var holdCount : Int = 0 
-  // 
+
   // bits does NOT contain self, so that deadlock checks can be cache-local and insanely fast
   @volatile private var bits : BitSet = BitSet.empty
   
@@ -105,7 +100,6 @@ class Ticket(ticketNum : Int) {
   
   @volatile private var deadlocked : Boolean = false
   
-  // NOTE: These may need to be synchronized, or at the very least the holdCount var will need to be 'volatile'
   private def incrementHoldCount() : Unit = holdCount = holdCount + 1
   
   private def decrementHoldCount() : Unit = { 
@@ -131,8 +125,9 @@ class Ticket(ticketNum : Int) {
 
   def union(other: Ticket) : Unit = _union(other, List[Ticket]())
 
+  // lock-free union
   private def _union(other: Ticket, visited : List[Ticket]) : Unit = {
-     println("%d U %d".format(ticketNum, other.getTicketNum()))
+     // println("%d U %d".format(ticketNum, other.getTicketNum()))
     // deadlock, so flag everyone in the cycle
     if (visited.contains(this)) {
       visited.foreach( (t) => t.deadlocked = true )

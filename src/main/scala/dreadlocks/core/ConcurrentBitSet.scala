@@ -4,7 +4,7 @@ import scala.collection.mutable.BitSet
 import java.util.concurrent.locks.ReentrantLock
 
 /*
- * Provides safe accesses to a bitset under the hood
+ * Provides safe access to a bitset under the hood
  */
 class ConcurrentBitSet(length:Int) {
   
