@@ -2,24 +2,11 @@ package dreadlocks.benchmarks
 
 import java.util.concurrent.CyclicBarrier
 import dreadlocks.core.DreadLock
-import dreadlocks.core.AbstractLock
 
 class DummyData(v:Int) {
   def getV() = v
   override def toString(): String = v.toString()
 }
-
-// true t2 n1000000 w10000 r100  | 175  10.0/13.0%   seems to be slower
-// false t2 n1000000 w10000 r100 | 155
-
-// true t3 n1000000 w10000 r100  | 238  15.33/24.0%
-// false t3 n1000000 w10000 r100 | 192
-
-// true t4 n1000000 w10000 r100  | 257  10.25/19.0%
-// false t4 n1000000 w10000 r100 | 216
-
-// true t7 n1000000 w10000 r100  | 481  11.1/19.3%   slightly better
-// false t7 n1000000 w6000 r100  | 403
 
 object NoDL {
   
@@ -49,9 +36,12 @@ object NoDL {
      
      contentionList = List.tabulate(numElem)(
          (n) => new DummyData(n))
+
+    val dl:DreadLock = new DreadLock();
          
      for (i <- 1 to warmups) {
-       time = runNoDL()
+       dl.reset()
+       time = runNoDL(dl)
            total += time
        if (verbose) println("Warmup %d completed in: %d"
            .format(i, time))
@@ -64,7 +54,8 @@ object NoDL {
      total = 0
      
      for (i <- 1 to runs) {
-       time = runNoDL()
+       dl.reset()
+       time = runNoDL(dl)
        total += time
        if (verbose) println("Run %d completed in: %d"
          .format(i, time))
@@ -77,7 +68,7 @@ object NoDL {
      total = 0
   }
 
-  private def runNoDL(): Long = {
+  private def runNoDL(dl:DreadLock): Long = {
     
     barrier = new CyclicBarrier(threads)
     runBarrier = new CyclicBarrier(threads+1)
@@ -86,8 +77,8 @@ object NoDL {
 
     // spawn processes
     for (i <- 1 to threads) {
-      val l = new NoDL();
-      l.start()
+      val l = new NoDL(dl);
+      (new Thread(l)).start()
     }
     
     val start = System.currentTimeMillis()
@@ -148,7 +139,7 @@ object NoDL {
   }
 }
 
-class NoDL() extends Thread {
+class NoDL(dl:DreadLock) extends Runnable {
   
   override def run():Unit = {
 
@@ -161,9 +152,9 @@ class NoDL() extends Thread {
     
     // "process" every element in the list in ascending order
     l.foreach((d) => {
-      AbstractLock.lock(d)
+      dl.lock(d)
       d.getV() + 1
-      AbstractLock.unlock(d)
+      dl.unlock(d)
     })
     
     NoDL.getRunBarrier().await()

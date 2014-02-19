@@ -24,7 +24,7 @@ object Ticket {
   val gLock : ReentrantLock = new ReentrantLock()
   
   // for recycling tickets
-  val ticketStack : SynchronizedStack[Ticket] = new SynchronizedStack[Ticket]()
+  // val ticketStack : SynchronizedStack[Ticket] = new SynchronizedStack[Ticket]()
   
   // no recycling; creating new Tickets EVERY time one is pulled off of the stack 
   // TODO: add recycling
@@ -59,8 +59,8 @@ object Ticket {
             "Failed to take Ticket: " + e.getMessage()) 
         }
       case Some(t : Ticket) =>
-         t.incrementHoldCount
-      t
+        t.incrementHoldCount
+        t
     }
     if (myTicket == null) throw new NullPointerException("takeTicket returned null ticket")
     myTicket
@@ -75,13 +75,13 @@ object Ticket {
       case None => throw new DreadLockException("thread + %d has no Ticket".format(tid))
       case Some(t:Ticket) => t
     }
-    
+
     myTicket.decrementHoldCount()
     
     if (myTicket.isFree()) {
       ticketMap.remove(tid)
       myTicket.clear()
-      ticketStack.push(myTicket)
+      ticketNumStack.push(myTicket.getTicketNum())
       return false
     } else return true
   }

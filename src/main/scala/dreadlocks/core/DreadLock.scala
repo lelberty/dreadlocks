@@ -27,6 +27,7 @@ class DreadLock() {
   val resourceMap : TrieMap[Any, LockData] = new TrieMap[Any, LockData]
   
   def reset() : Unit = {
+    Ticket.reset();
     resourceMap.clear
   }
   

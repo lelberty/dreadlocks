@@ -4,9 +4,11 @@ import scala.util.Random
 import scala.collection.mutable.ListBuffer
 import java.util.concurrent.CyclicBarrier
 import dreadlocks.core.DreadLock
-import dreadlocks.core.AbstractLock
-//import dreadlocks.benchmarks.DummyData
+import dreadlocks.core.Ticket
 
+
+// This benchmark is outdated, and was designed for AbstractLock. 
+// Further work needed to adapt to DreadLocks
 object RandomAccess {
   
   // Parameters
@@ -18,7 +20,7 @@ object RandomAccess {
   var batchSize:Int = 2
   var nextBatchSize:Int = batchSize
   var verbose:Boolean = false
-        
+  
   private var barrier:CyclicBarrier = null
   def getBarrier() = barrier
   
@@ -30,46 +32,45 @@ object RandomAccess {
   
   def main(args:Array[String]): Unit = {
     
-     parseArgs(args)
-     
-     var time:Long = 0;
-     var total:Long = 0;
-     var avg:Long = 0;
+    parseArgs(args)
+    
+    var time:Long = 0
+    var total:Long = 0
+    var avg:Long = 0
 
-     contentionList = List.tabulate(numElem)(
-         (n) => new DummyData(n))
-         
-         
-     for (i <- 1 to warmups) {
-       AbstractLock.reset()
-       time = runRandomAccess()
-           total += time
-       if (verbose) println("Warmup %d completed in: %d, deadlocks: %f"
-           .format(i, time, AbstractLock.getDlCount()/(1.0*numAccesses*threads)))
-     }
-     
-     avg = total/warmups
-     
-     println("Average warmup time: %d".format(avg))
-     avg = 0
-     total = 0
-     
-     for (i <- 1 to runs) {
-       AbstractLock.reset()
-       time = runRandomAccess()
-       total += time
-       if (verbose) println("Run %d completed in: %d, deadlocks/runs: %f"
-         .format(i, time, AbstractLock.getDlCount/(1.0*numAccesses*threads)))
-     }
-     
-     avg = total/runs
-     
-     println("Average run time: %d".format(avg))
-     avg = 0
-     total = 0
+    contentionList = List.tabulate(numElem)(
+      (n) => new DummyData(n))
+    
+    val dl : DreadLock = new DreadLock();
+    
+    for (i <- 1 to warmups) {
+      dl.reset()
+      time = runRandomAccess(dl)
+      total += time
+      if (verbose) println("Warmup %d completed in: %d".format(i, time))
+    }
+    
+    avg = total/warmups
+    
+    println("Average warmup time: %d".format(avg))
+    avg = 0
+    total = 0
+    
+    for (i <- 1 to runs) {
+      dl.reset()
+      time = runRandomAccess(dl)
+      total += time
+      if (verbose) println("Run %d completed in: %d".format(i, time))
+    }
+    
+    avg = total/runs
+    
+    println("Average run time: %d".format(avg))
+    avg = 0
+    total = 0
   }
 
-  private def runRandomAccess(): Long = {
+  private def runRandomAccess(dl:DreadLock): Long = {
     
     barrier = new CyclicBarrier(threads)
     runBarrier = new CyclicBarrier(threads+1)
@@ -78,8 +79,8 @@ object RandomAccess {
 
     // spawn processes
     for (i <- 1 to threads) {
-      val l = new RandomAccess();
-      l.start()
+      val l = new RandomAccess(dl)
+      (new Thread(l)).start()
     }
     
     val start = System.currentTimeMillis()
@@ -89,7 +90,7 @@ object RandomAccess {
   } 
   
   def parseArgs(args:Array[String]): Unit = {
-      
+    
     var i:Int = 0
     var arg:String = ""
     var opterr:Boolean = false
@@ -149,7 +150,7 @@ object RandomAccess {
   }
 }
 
-class RandomAccess() extends Thread {
+class RandomAccess(dl:DreadLock) extends Runnable {
   
   override def run():Unit = {
 
@@ -169,36 +170,47 @@ class RandomAccess() extends Thread {
     var batch = 1
     var nextBatchSize = batchSize
     
-    var acquired = ListBuffer[DummyData]()
-
-    for (a <- 1 to numAccesses by batchSize) {
-      
-      if (batch == numBatches) nextBatchSize = numAccesses - a + 1
-          
-      // batch acquire
-      for (b <- 1 to nextBatchSize) {
-        val e = l(gen.nextInt(RandomAccess.numElem))
-        if (AbstractLock.lock(e)) acquired += e // only add to acquired if I don't already own it
-        e.getV() + 1
-      }
-      
-      // batch release
-      acquired.foreach( (e) => AbstractLock.unlock(e) )
-      acquired.clear()      
-    }
+    var toAcquire:ListBuffer[DummyData] = ListBuffer[DummyData]()
     
-    // random accesses 
-//    for (i <- 1 to RandomAccess.numAccesses) {
-//      // pick random 
-//      val index = gen.nextInt(RandomAccess.numElem)
-//      val d = l(index)
-//      AbstractLock.lock(d)
-//      d.getV() + 1
-//      AbstractLock.unlock(d)
-//    }
+    for (a <- 1 to numAccesses by batchSize) {
+
+      // elements to acquire, forcing distinction (this will affect the number of 
+      // elements actually acquired, however it should not significantly affect
+      // the benchmark
+
+      toAcquire.prependAll(
+        (List.range(0, nextBatchSize).map( (_) =>
+          l(gen.nextInt(RandomAccess.numElem))).distinct))
+
+      if (batch == numBatches) nextBatchSize = numAccesses - a + 1
+
+      toAcquire.foreach( (d) => {
+        dl.lock(d)
+        d.getV() + 1
+      })
+
+      // batch release
+      toAcquire.foreach( (d) => dl.unlock(d) )
+      toAcquire.clear()
+    }
+
+    
+    //   if (batch == numBatches) nextBatchSize = numAccesses - a + 1
+    
+    //   // batch acquire
+    //   for (b <- 1 to nextBatchSize) {
+    //     val e = l(gen.nextInt(RandomAccess.numElem))
+    //     if (dl.lock(e) == DreadLockStatus.Success) acquired += e // only add to acquired if I don't already own it
+    //     e.getV() + 1
+    //   }
+    
+    // batch release
+    //     toAcquire.foreach( (e) => dl.unlock(e) )
+    // toAcquire.clear()      
+    // }
     
     RandomAccess.getRunBarrier().await()
   }
-    
+  
 }
 
