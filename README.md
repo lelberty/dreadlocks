@@ -27,13 +27,17 @@ Running
 
 Use sbt to run.
 
-I use the ScalaTest concurrency package to do my testing. Tests may be run with 'test' or 'testOnly dreadlocks.test.SUITENAME'
+I use the ScalaTest concurrency package to do my testing. Tests should be run with 'testOnly dreadlocks.test.SUITENAME'. To run the DreadLock suite:
 
-IMPORTANT: The DreadLockSpec test that runs a 3-way deadlock MAY FAIL. This failure, unfortuantely, is due to a known bug/limitation in the ScalaTest concurrency package, which is caused by a dash of non-determinism in java.lang.Thread.getState. See the [Conductor documentation](http://doc.scalatest.org/1.4.1/org/scalatest/concurrent/Conductor.html) for details. I have created a demonstration of this bug in STBugSpec.
+testOnly dreadlocks.test.DreadLockSpec
+
+Tests should be only run with 'testOnly'. Weird memory bugs occur when all suites are run with 'test'.
+
+IMPORTANT: The DreadLockSpec test that runs a 3-way deadlock MAY FAIL with 'succes is not equal to deadlock'. This failure, unfortuantely, is due to a known bug/limitation in the ScalaTest concurrency package, which is caused by a dash of non-determinism in java.lang.Thread.getState. See the [Conductor documentation](http://doc.scalatest.org/1.4.1/org/scalatest/concurrent/Conductor.html) for details. I have created a test case demonstrating this bug in STBugSpec.
 
 I have two primitive benchmarks: 
 
 * A random access benchmark that causes multiple threads to access and lock random elements in a list. This allows for a high degree of control in tuning deadlock frequency.
 * A no deadlock benchmark that creates high contention by locking succesive elements in a list. This is meant to demonstrate the performance overhead of enabling dreadlocks when it is not beneficial to do so.
 
-The Dreadlocks system itself consists of just DreadLock.scala and Ticket.scala in dreadlocks.core.
+The Dreadlocks system itself consists of just dreadlocks.core.DreadLock and dreadlocks.core.Ticket.
