@@ -31,7 +31,7 @@ I use the ScalaTest concurrency package to do my testing. Tests should be run wi
 
 testOnly dreadlocks.test.DreadLockSpec
 
-Tests should be only run with 'testOnly'. Weird memory bugs occur when all suites are run with 'test'.
+Tests should be only run with 'testOnly'. Weird memory bugs occur when all suites are run with 'test', and I haven't figured out why this happens with ScalaTest.
 
 IMPORTANT: The DreadLockSpec test that runs a 3-way deadlock MAY FAIL with 'succes is not equal to deadlock'. This failure, unfortuantely, is due to a known bug/limitation in the ScalaTest concurrency package, which is caused by a dash of non-determinism in java.lang.Thread.getState. See the [Conductor documentation](http://doc.scalatest.org/1.4.1/org/scalatest/concurrent/Conductor.html) for details. I have created a test case demonstrating this bug in STBugSpec.
 
