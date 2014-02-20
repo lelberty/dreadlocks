@@ -49,38 +49,28 @@ class DreadLock() {
       
       while(true) {
         while (lockData.locked.get()) {
-          // cycle check (cheap)
           val curOwner = lockData.owner.get()
 
           if (myTicket.cycleCheck()) {
-            // println("%d sees deadlock: aborting".format(tn))
             return DreadLockStatus.Deadlock 
           }
-          else if (curOwner != null) { // no cycle, update my digest if the owner has changed
+          else if (curOwner != null) { 
+            // no cycle, update my digest if the owner has changed
             
-            // only need to update if owner changed (if current owner changes
-            // its bits then back-prop will update mine)
             if (curOwner != lastOwner) {
-              // println("%d before union".format(tn))
-              myTicket.clearBits()
+              myTicket.remove(lastOwner)
               myTicket.union(curOwner)
-              // println("%d after union".format(tn))
             }
           }
           lastOwner = curOwner          
         }
-        
-        // println("%d seees lock available".format(tn))
         
         // unlocked, attempt to acquire
         if (lockData.locked.compareAndSet(false, true)) {
           // safely update the owner
           if (!lockData.owner.compareAndSet(lockData.owner.get(), myTicket))
             throw new DreadLockException("owner was changed even though I have the lock")
-          
-          // I no longer depend on ANYONE (although others may still depend on me)
-          myTicket.clearBits()
-          // println("%d just acquired %s".format(tn, key))
+
           return DreadLockStatus.Success
         }
       }

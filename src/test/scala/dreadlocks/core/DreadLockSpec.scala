@@ -51,7 +51,7 @@ class DreadLockSpec extends FunSpec with BeforeAndAfter {
   describe("DreadLock") {
     
     it ("should let two threads lock separate resources with no competition") {
-      
+
       for (i <- 1 to NUM_RUNS) {
         
         Ticket.reset()

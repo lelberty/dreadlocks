@@ -4,7 +4,7 @@ import org.scalatest.concurrent._
 import org.scalatest.FunSpec
 
 
-class DerpSpec extends FunSpec {
+class STBugSpec extends FunSpec {
 
   describe("A @volatile var") {
     

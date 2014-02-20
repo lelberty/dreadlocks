@@ -3,8 +3,6 @@ package dreadlocks.core
 import scala.collection.mutable.SynchronizedStack
 import scala.collection.immutable.List
 import scala.collection.concurrent.TrieMap
-//import java.util.concurrent.ConcurrentHashMap
-import scala.collection.immutable.BitSet
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -92,9 +90,6 @@ class Ticket(ticketNum : Int) {
 
   private var holdCount : Int = 0 
 
-  // bits does NOT contain self, so that deadlock checks can be cache-local and insanely fast
-  @volatile private var bits : BitSet = BitSet.empty
-  
   /* dependents should NEVER contain this Ticket */
   @volatile private var dependents : List[Ticket] = List[Ticket]()
   
@@ -112,22 +107,17 @@ class Ticket(ticketNum : Int) {
   def getHoldCount() : Int = holdCount
   
   def getDependents() = dependents
-  def getBits() = bits
   
   def isFree() : Boolean = holdCount == 0
   
-  def clear() : Unit = {
-    clearBits()
-    dependents = List.empty[Ticket]
-  }
-  
-  def clearBits() : Unit = bits = BitSet.empty
+  def clear() : Unit = dependents = List.empty[Ticket]
+
+  def remove(ticket: Ticket) : Unit = dependents.diff(List(ticket))
 
   def union(other: Ticket) : Unit = _union(other, List[Ticket]())
 
   // lock-free union
   private def _union(other: Ticket, visited : List[Ticket]) : Unit = {
-     // println("%d U %d".format(ticketNum, other.getTicketNum()))
     // deadlock, so flag everyone in the cycle
     if (visited.contains(this)) {
       visited.foreach( (t) => t.deadlocked = true )
@@ -142,7 +132,7 @@ class Ticket(ticketNum : Int) {
   def cycleCheck() : Boolean = deadlocked
 
   override def toString() : String = {
-    "Ticket[ticketNum = %d, bits = %s, dependents = %s]"
-		.format(ticketNum, bits, dependents)
+    "Ticket[ticketNum = %d, dependents = %s]"
+		.format(ticketNum, dependents)
   }
 }
